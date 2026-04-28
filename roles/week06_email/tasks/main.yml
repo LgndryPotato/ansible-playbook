@@ -1,0 +1,230 @@
+---
+- name: Install Week 06 email packages on RedHat-like systems
+  ansible.builtin.dnf:
+    name:
+      - postfix
+      - dovecot
+      - dovecot-pigeonhole
+      - s-nail
+      - telnet
+      - curl
+      - unzip
+      - php
+      - php-fpm
+      - php-mysqlnd
+      - php-intl
+      - php-mbstring
+      - php-xml
+      - php-json
+      - php-gd
+      - php-common
+      - mariadb-server
+      - python3-PyMySQL
+      - python3-passlib
+    state: present
+  when: ansible_facts['os_family'] == 'RedHat'
+  tags: week06_email
+
+- name: Enable and start required base services
+  ansible.builtin.service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - mariadb
+    - php-fpm
+    - httpd
+  tags: week06_email
+
+- name: Open mail and web firewall ports
+  ansible.posix.firewalld:
+    port: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop:
+    - 25/tcp
+    - 143/tcp
+  tags: week06_email
+
+- name: Open HTTP service for Roundcube
+  ansible.posix.firewalld:
+    service: http
+    permanent: true
+    immediate: true
+    state: enabled
+  tags: week06_email
+
+- name: Create local marketing user
+  ansible.builtin.user:
+    name: "{{ mail_user }}"
+    create_home: true
+    shell: /bin/bash
+  tags: week06_email
+
+- name: Set marketing user password
+  ansible.builtin.shell: |
+    echo "{{ mail_user }}:{{ mail_password }}" | chpasswd
+  no_log: true
+  tags: week06_email
+
+- name: Ensure marketing Maildir directories exist
+  ansible.builtin.file:
+    path: "/home/{{ mail_user }}/Maildir/{{ item }}"
+    state: directory
+    owner: "{{ mail_user }}"
+    group: "{{ mail_user }}"
+    mode: "0700"
+  loop:
+    - ""
+    - cur
+    - new
+    - tmp
+  tags: week06_email
+
+- name: Configure Postfix
+  ansible.builtin.template:
+    src: main.cf.j2
+    dest: /etc/postfix/main.cf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart postfix
+  tags: week06_email
+
+- name: Configure Dovecot main config
+  ansible.builtin.template:
+    src: dovecot.conf.j2
+    dest: /etc/dovecot/dovecot.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart dovecot
+  tags: week06_email
+
+- name: Enable and start Postfix and Dovecot
+  ansible.builtin.service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - postfix
+    - dovecot
+  tags: week06_email
+
+- name: Create Roundcube database
+  community.mysql.mysql_db:
+    name: "{{ roundcube_db_name }}"
+    state: present
+    login_unix_socket: /var/lib/mysql/mysql.sock
+  tags: week06_email
+
+- name: Create Roundcube DB user
+  community.mysql.mysql_user:
+    name: "{{ roundcube_db_user }}"
+    password: "{{ roundcube_db_password }}"
+    priv: "{{ roundcube_db_name }}.*:ALL"
+    host: localhost
+    state: present
+    login_unix_socket: /var/lib/mysql/mysql.sock
+  tags: week06_email
+
+- name: Download Roundcube
+  ansible.builtin.unarchive:
+    src: https://github.com/roundcube/roundcubemail/releases/download/1.6.11/roundcubemail-1.6.11-complete.tar.gz
+    dest: /tmp
+    remote_src: true
+    creates: /tmp/roundcubemail-1.6.11
+  tags: week06_email
+
+- name: Deploy Roundcube files
+  ansible.builtin.copy:
+    src: /tmp/roundcubemail-1.6.11/
+    dest: "{{ roundcube_root }}/"
+    remote_src: true
+    owner: apache
+    group: apache
+    mode: preserve
+  tags: week06_email
+
+- name: Ensure Roundcube temp and logs are writable
+  ansible.builtin.file:
+    path: "{{ roundcube_root }}/{{ item }}"
+    state: directory
+    owner: apache
+    group: apache
+    mode: "0750"
+  loop:
+    - temp
+    - logs
+  tags: week06_email
+
+- name: Deploy Roundcube config
+  ansible.builtin.template:
+    src: roundcube-config.inc.php.j2
+    dest: "{{ roundcube_root }}/config/config.inc.php"
+    owner: apache
+    group: apache
+    mode: "0640"
+  notify:
+    - restart httpd
+    - restart php-fpm
+  tags: week06_email
+
+- name: Check if Roundcube database is initialized
+  ansible.builtin.shell: "mysql --socket=/var/lib/mysql/mysql.sock {{ roundcube_db_name }} -e 'SHOW TABLES;' | grep -q users"
+  register: roundcube_db_initialized
+  changed_when: false
+  failed_when: false
+  tags: week06_email
+
+- name: Initialize Roundcube database schema
+  ansible.builtin.shell: "mysql --socket=/var/lib/mysql/mysql.sock {{ roundcube_db_name }} < {{ roundcube_root }}/SQL/mysql.initial.sql"
+  when: roundcube_db_initialized.rc != 0
+  tags: week06_email
+
+- name: Deploy Roundcube Apache virtualhost
+  ansible.builtin.template:
+    src: roundcube.conf.j2
+    dest: /etc/httpd/conf.d/03-roundcube.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart httpd
+  tags: week06_email
+
+- name: Ensure SPF, MX, and mail A records exist in Week 05 forward zone
+  ansible.builtin.blockinfile:
+    path: "/var/lib/knot/zones/{{ domain }}.zone"
+    marker: "; {mark} WEEK06 EMAIL RECORDS"
+    block: |
+      @ IN TXT "v=spf1 a mx ip4:{{ vm_public_ip }} -all"
+      @ IN MX 10 mail.{{ domain }}.
+      mail IN A {{ vm_public_ip }}
+  register: week06_zone_update
+  tags: week06_email
+
+- name: Reload Knot after email DNS records
+  ansible.builtin.shell: |
+    knotc zone-reload {{ domain }} || systemctl restart knot
+    knotc zone-notify {{ domain }} || true
+  when: week06_zone_update.changed
+  changed_when: true
+  tags: week06_email
+
+- name: Flush handlers before validation
+  ansible.builtin.meta: flush_handlers
+  tags: week06_email
+
+- name: Send test email from marketing to Nagios scoring
+  ansible.builtin.shell: |
+    printf '%s\n' '{{ mail_test_body }}' | mail -s '{{ mail_test_subject }}' -r '{{ mail_user }}@{{ domain }}' {{ mail_test_recipient }}
+  become_user: "{{ mail_user }}"
+  changed_when: true
+  tags: week06_email
+
+- name: Validate mail ports locally
+  ansible.builtin.shell: |
+    ss -tlnp | grep -E ':(25|143)'
+  changed_when: false
+  tags: week06_email

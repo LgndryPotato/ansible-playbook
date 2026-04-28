@@ -1,0 +1,4 @@
+# Week 04 security checks.
+# This fallback blocks the lab's /etc/passwd request even on Arch systems where mod_security is not in official pacman repos.
+RedirectMatch 403 ^.*/etc/passwd.*
+

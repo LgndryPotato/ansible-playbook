@@ -1,0 +1,14 @@
+<VirtualHost *:80>
+    ServerName {{ frontpage_domain }}
+    DocumentRoot {{ frontpage_root }}
+
+    <Directory "{{ frontpage_root }}">
+        Options -Indexes +FollowSymLinks
+        AllowOverride None
+        Require all granted
+    </Directory>
+
+    ForensicLog /var/log/httpd/{{ frontpage_domain }}-forensic.log
+    ErrorLog /var/log/httpd/{{ frontpage_domain }}-error.log
+    CustomLog /var/log/httpd/{{ frontpage_domain }}-access.log combined
+</VirtualHost>

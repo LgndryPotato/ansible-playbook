@@ -1,0 +1,10 @@
+$TTL 900
+@       IN  SOA  ns1.{{ dns_domain }}. admin.{{ dns_domain }}. (
+                  {{ ansible_date_time.epoch }}  ; Serial
+                  900           ; Refresh
+                  300           ; Retry
+                  7200          ; Expire
+                  600 )         ; Negative Cache TTL
+
+@              IN  NS   ns1.{{ dns_domain }}.
+{{ reverse_ptr_name }}      IN  PTR  {{ dns_domain }}.

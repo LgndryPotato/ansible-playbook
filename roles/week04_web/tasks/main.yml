@@ -1,0 +1,271 @@
+---
+- name: Install required packages on Arch
+  community.general.pacman:
+    name:
+      - httpd
+      - firewalld
+      - git
+      - python
+      - python-pip
+      - python-flask
+      - mariadb
+      - python-pymysql
+      - php
+      - php-fpm
+      - php-apache
+      - unzip
+      - tar
+      - curl
+    state: present
+    update_cache: true
+  when: ansible_os_family == "Archlinux"
+  tags: packages
+
+- name: Install required packages on RedHat-like systems
+  ansible.builtin.dnf:
+    name:
+      - httpd
+      - firewalld
+      - git
+      - python3
+      - python3-pip
+      - mariadb-server
+      - python3-PyMySQL
+      - php
+      - php-fpm
+      - php-mysqlnd
+      - php-json
+      - tar
+      - curl
+    state: present
+  when: ansible_os_family == "RedHat"
+  tags: packages
+
+- name: Remove broken ModSecurity package config if it was installed earlier
+  ansible.builtin.file:
+    path: /etc/httpd/conf.d/mod_security.conf
+    state: absent
+  when: ansible_os_family == "RedHat"
+  notify: restart httpd
+  tags: apache
+
+- name: Install Flask with pip on RedHat-like systems
+  ansible.builtin.pip:
+    name: flask
+    executable: pip3
+  when: ansible_os_family == "RedHat"
+  tags: inventory_api
+
+- name: Optionally install Apache ModSecurity from AUR on Arch
+  ansible.builtin.command: yay -S --noconfirm apache-modsecurity-git
+  become: false
+  changed_when: false
+  failed_when: false
+  when:
+    - ansible_os_family == "Archlinux"
+    - enable_modsecurity_aur | bool
+  tags: modsecurity
+
+- name: Enable and start base services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - httpd
+    - firewalld
+    - mariadb
+    - php-fpm
+  tags: services
+
+- name: Open HTTP in firewalld
+  ansible.posix.firewalld:
+    service: http
+    permanent: true
+    immediate: true
+    state: enabled
+  tags: firewall
+
+- name: Ensure Apache extra include directory exists
+  ansible.builtin.file:
+    path: /etc/httpd/conf/extra
+    state: directory
+    mode: "0755"
+  tags: apache
+
+- name: Enable required Apache modules and conf.d includes
+  ansible.builtin.blockinfile:
+    path: /etc/httpd/conf/httpd.conf
+    marker: "# {mark} ANSIBLE WEEK04 MODULES"
+    block: |
+      LoadModule proxy_module modules/mod_proxy.so
+      LoadModule proxy_http_module modules/mod_proxy_http.so
+      LoadModule rewrite_module modules/mod_rewrite.so
+      LoadModule headers_module modules/mod_headers.so
+      LoadModule log_forensic_module modules/mod_log_forensic.so
+      IncludeOptional conf.d/*.conf
+  notify: restart httpd
+  tags: apache
+
+- name: Deploy PHP-FPM Apache config
+  ansible.builtin.copy:
+    dest: /etc/httpd/conf.d/php-fpm.conf
+    mode: "0644"
+    content: |
+      <FilesMatch \.php$>
+          SetHandler "proxy:unix:/run/php-fpm/www.sock|fcgi://localhost/"
+      </FilesMatch>
+      DirectoryIndex index.php index.html
+  notify: restart httpd
+  tags: wordpress
+
+- name: Clone static front page
+  ansible.builtin.git:
+    repo: "{{ static_site_repo }}"
+    dest: "{{ frontpage_root }}"
+    version: main
+    force: true
+  tags: frontpage
+
+- name: Ensure front page contains VM name for checker
+  ansible.builtin.blockinfile:
+    path: "{{ frontpage_root }}/index.html"
+    marker: "<!-- {mark} ANSIBLE WEEK04 VM NAME -->"
+    insertbefore: "</body>"
+    block: |
+      <p>{{ vm_name }}</p>
+  failed_when: false
+  tags: frontpage
+
+- name: Clone inventory API
+  ansible.builtin.git:
+    repo: "{{ inventory_api_repo }}"
+    dest: "{{ inventory_app_dir }}"
+    version: main
+    force: true
+  tags: inventory_api
+
+- name: Deploy inventory API systemd unit
+  ansible.builtin.template:
+    src: inventory-api.service.j2
+    dest: /etc/systemd/system/inventory-api.service
+    mode: "0644"
+  notify: restart inventory-api
+  tags: inventory_api
+
+- name: Ensure inventory API service is running
+  ansible.builtin.systemd:
+    name: inventory-api
+    state: started
+    enabled: true
+    daemon_reload: true
+  tags: inventory_api
+
+- name: Initialize MariaDB data directory on Arch if needed
+  ansible.builtin.command: mariadb-install-db --user=mysql --basedir=/usr --datadir=/var/lib/mysql
+  args:
+    creates: /var/lib/mysql/mysql
+  when: ansible_os_family == "Archlinux"
+  notify: restart mariadb
+  tags: wordpress
+
+- name: Start MariaDB after possible initialization
+  ansible.builtin.systemd:
+    name: mariadb
+    state: started
+    enabled: true
+  tags: wordpress
+
+- name: Remove anonymous MariaDB users
+  community.mysql.mysql_user:
+    name: ""
+    host_all: true
+    state: absent
+    login_unix_socket: "{{ mysql_socket }}"
+  failed_when: false
+  tags: wordpress
+
+- name: Remove test database
+  community.mysql.mysql_db:
+    name: test
+    state: absent
+    login_unix_socket: "{{ mysql_socket }}"
+  failed_when: false
+  tags: wordpress
+
+- name: Create WordPress database
+  community.mysql.mysql_db:
+    name: "{{ wp_db_name }}"
+    state: present
+    login_unix_socket: "{{ mysql_socket }}"
+  tags: wordpress
+
+- name: Create WordPress DB user
+  community.mysql.mysql_user:
+    name: "{{ wp_db_user }}"
+    password: "{{ wp_db_password }}"
+    priv: "{{ wp_db_name }}.*:ALL"
+    host: localhost
+    state: present
+    login_unix_socket: "{{ mysql_socket }}"
+  tags: wordpress
+
+- name: Download and extract WordPress
+  ansible.builtin.unarchive:
+    src: https://wordpress.org/latest.tar.gz
+    dest: /tmp
+    remote_src: true
+    creates: /tmp/wordpress/wp-settings.php
+  tags: wordpress
+
+- name: Deploy WordPress files
+  ansible.builtin.copy:
+    src: /tmp/wordpress/
+    dest: "{{ wordpress_root }}/"
+    remote_src: true
+    owner: http
+    group: http
+    mode: preserve
+  when: ansible_os_family == "Archlinux"
+  tags: wordpress
+
+- name: Deploy WordPress files on RedHat-like systems
+  ansible.builtin.copy:
+    src: /tmp/wordpress/
+    dest: "{{ wordpress_root }}/"
+    remote_src: true
+    owner: apache
+    group: apache
+    mode: preserve
+  when: ansible_os_family == "RedHat"
+  tags: wordpress
+
+- name: Deploy wp-config.php
+  ansible.builtin.template:
+    src: wp-config.php.j2
+    dest: "{{ wordpress_root }}/wp-config.php"
+    owner: apache
+    group: apache
+    mode: "0640"
+  tags: wordpress
+
+- name: Deploy virtual host configs
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/etc/httpd/conf.d/{{ item.dest }}"
+    mode: "0644"
+  loop:
+    - { src: frontpage.conf.j2, dest: "00-frontpage.conf" }
+    - { src: inventory.conf.j2, dest: "01-inventory.conf" }
+    - { src: wordpress.conf.j2, dest: "02-wordpress.conf" }
+    - { src: security.conf.j2, dest: "99-week04-security.conf" }
+  notify: restart httpd
+  tags: apache
+
+- name: Validate Apache config
+  ansible.builtin.command: apachectl configtest
+  changed_when: false
+  tags: apache
+
+- name: Restart services now if config changed
+  ansible.builtin.meta: flush_handlers

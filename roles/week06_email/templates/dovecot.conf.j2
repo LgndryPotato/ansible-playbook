@@ -1,0 +1,35 @@
+# Week 06 Dovecot config
+protocols = imap lmtp
+listen = *, ::
+mail_location = maildir:~/Maildir
+first_valid_uid = 1000
+
+ssl = no
+disable_plaintext_auth = no
+auth_mechanisms = plain login
+
+passdb {
+  driver = pam
+}
+
+userdb {
+  driver = passwd
+}
+
+service imap-login {
+  inet_listener imap {
+    port = 143
+  }
+}
+
+service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0660
+    user = postfix
+    group = postfix
+  }
+}
+
+protocol lda {
+  postmaster_address = postmaster@{{ domain }}
+}

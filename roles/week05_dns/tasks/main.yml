@@ -1,0 +1,238 @@
+---
+- name: Determine DNS IP and reverse zone variables
+  ansible.builtin.set_fact:
+    dns_effective_ip: "{{ (vm_public_ip | default('', true) | length > 0) | ternary(vm_public_ip, ansible_default_ipv4.address) }}"
+  tags: dns
+
+- name: Split DNS IP into octets
+  ansible.builtin.set_fact:
+    dns_ip_octets: "{{ dns_effective_ip.split('.') }}"
+  tags: dns
+
+- name: Build reverse DNS zone and PTR name
+  ansible.builtin.set_fact:
+    reverse_zone: "{{ dns_ip_octets[2] }}.{{ dns_ip_octets[1] }}.{{ dns_ip_octets[0] }}.in-addr.arpa"
+    reverse_ptr_name: "{{ dns_ip_octets[3] }}"
+  tags: dns
+
+- name: Show DNS values used by this role
+  ansible.builtin.debug:
+    msg:
+      - "dns_domain={{ dns_domain }}"
+      - "dns_effective_ip={{ dns_effective_ip }}"
+      - "reverse_zone={{ reverse_zone }}"
+      - "reverse_ptr_name={{ reverse_ptr_name }}"
+      - "NOTE: dns_effective_ip must be your floating/public IP for Nagios scoring."
+  tags: dns
+
+- name: Install DNS packages on RedHat-like systems
+  ansible.builtin.dnf:
+    name:
+      - knot-resolver
+      - knot
+      - bind-utils
+      - firewalld
+      - policycoreutils-python-utils
+    state: present
+  when: ansible_os_family == "RedHat"
+  tags: dns
+
+- name: Ensure firewalld is enabled and running
+  ansible.builtin.systemd:
+    name: firewalld
+    state: started
+    enabled: true
+  tags: dns
+
+- name: Open DNS service on port 53 tcp/udp
+  ansible.posix.firewalld:
+    service: dns
+    permanent: true
+    immediate: true
+    state: enabled
+  tags: dns
+
+- name: Open Knot authoritative DNS tcp/5353
+  ansible.posix.firewalld:
+    port: "{{ dns_authoritative_port }}/tcp"
+    permanent: true
+    immediate: true
+    state: enabled
+  tags: dns
+
+- name: Open Knot authoritative DNS udp/5353
+  ansible.posix.firewalld:
+    port: "{{ dns_authoritative_port }}/udp"
+    permanent: true
+    immediate: true
+    state: enabled
+  tags: dns
+
+- name: Ensure Knot Resolver directory exists
+  ansible.builtin.file:
+    path: /etc/knot-resolver
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: dns
+
+- name: Deploy Knot Resolver config
+  ansible.builtin.template:
+    src: kresd.conf.j2
+    dest: /etc/knot-resolver/kresd.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart kresd
+  tags: dns
+
+- name: Fix Knot Resolver runtime directory ownership if present
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: knot-resolver
+    group: knot-resolver
+    mode: "0755"
+  loop:
+    - /var/lib/knot-resolver
+    - /run/knot-resolver
+  failed_when: false
+  tags: dns
+
+- name: Fix Knot Resolver library directory permissions
+  ansible.builtin.file:
+    path: /usr/lib64/knot-resolver
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: week05_dns
+
+- name: Enable and start Knot Resolver
+  ansible.builtin.systemd:
+    name: kresd@1.service
+    state: started
+    enabled: true
+  tags: dns
+
+- name: Remove immutable bit from /etc/resolv.conf before editing
+  ansible.builtin.command: chattr -i /etc/resolv.conf
+  changed_when: false
+  failed_when: false
+  when: dns_make_resolv_conf_immutable | bool
+  tags: dns
+
+- name: Configure VM to use local resolver
+  ansible.builtin.template:
+    src: resolv.conf.j2
+    dest: /etc/resolv.conf
+    owner: root
+    group: root
+    mode: "0644"
+  tags: dns
+
+- name: Make /etc/resolv.conf immutable
+  ansible.builtin.command: chattr +i /etc/resolv.conf
+  changed_when: false
+  when: dns_make_resolv_conf_immutable | bool
+  tags: dns
+
+- name: Ensure Knot zone directory exists
+  ansible.builtin.file:
+    path: "{{ dns_zone_dir }}"
+    state: directory
+    owner: knot
+    group: knot
+    mode: "0750"
+  tags: dns
+
+- name: Deploy Knot authoritative config
+  ansible.builtin.template:
+    src: knot.conf.j2
+    dest: /etc/knot/knot.conf
+    owner: root
+    group: knot
+    mode: "0640"
+  notify: restart knot
+  tags: dns
+
+- name: Deploy forward zone
+  ansible.builtin.template:
+    src: forward-zone.zone.j2
+    dest: "{{ dns_zone_dir }}/{{ dns_domain }}.zone"
+    owner: knot
+    group: knot
+    mode: "0640"
+  notify: reload knot
+  tags: dns
+
+- name: Deploy reverse zone
+  ansible.builtin.template:
+    src: reverse-zone.zone.j2
+    dest: "{{ dns_zone_dir }}/{{ reverse_zone }}.zone"
+    owner: knot
+    group: knot
+    mode: "0640"
+  notify: reload knot
+  tags: dns
+
+- name: Enable and start Knot authoritative server
+  ansible.builtin.systemd:
+    name: knot
+    state: started
+    enabled: true
+  tags: dns
+
+- name: Flush handlers before validation
+  ansible.builtin.meta: flush_handlers
+  tags: dns
+
+- name: Validate Knot config
+  ansible.builtin.command: knotc conf-check
+  changed_when: false
+  tags: dns
+
+- name: Validate forward zone
+  ansible.builtin.command: "knotc zone-check {{ dns_domain }}"
+  changed_when: false
+  tags: dns
+
+- name: Validate reverse zone
+  ansible.builtin.command: "knotc zone-check {{ reverse_zone }}"
+  changed_when: false
+  tags: dns
+
+- name: Trigger notify to course secondary for forward zone
+  ansible.builtin.command: "knotc zone-notify {{ dns_domain }}"
+  changed_when: true
+  failed_when: false
+  tags: dns
+
+- name: Test recursive resolver locally
+  ansible.builtin.command: dig @127.0.0.1 google.com A +short
+  register: dig_recursive_result
+  changed_when: false
+  failed_when: dig_recursive_result.stdout_lines | length == 0
+  tags: dns
+
+- name: Test authoritative forward zone locally
+  ansible.builtin.command: "dig @127.0.0.1 -p {{ dns_authoritative_port }} {{ dns_domain }} A +short"
+  register: dig_forward_result
+  changed_when: false
+  failed_when: dns_effective_ip not in dig_forward_result.stdout
+  tags: dns
+
+- name: Test authoritative blog CNAME locally
+  ansible.builtin.command: "dig @127.0.0.1 -p {{ dns_authoritative_port }} blog.{{ dns_domain }} +short"
+  register: dig_blog_result
+  changed_when: false
+  failed_when: (dns_domain ~ '.') not in dig_blog_result.stdout
+  tags: dns
+
+- name: Test authoritative reverse zone locally
+  ansible.builtin.command: "dig @127.0.0.1 -p {{ dns_authoritative_port }} -x {{ dns_effective_ip }} +short"
+  register: dig_reverse_result
+  changed_when: false
+  failed_when: (dns_domain ~ '.') not in dig_reverse_result.stdout
+  tags: dns

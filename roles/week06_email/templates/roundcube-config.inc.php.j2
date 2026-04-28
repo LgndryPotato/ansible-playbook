@@ -1,0 +1,14 @@
+<?php
+$config = [];
+$config['db_dsnw'] = 'mysql://{{ roundcube_db_user }}:{{ roundcube_db_password }}@localhost/{{ roundcube_db_name }}';
+$config['imap_host'] = 'localhost:143';
+$config['smtp_host'] = 'localhost:25';
+$config['smtp_user'] = '%u';
+$config['smtp_pass'] = '%p';
+$config['support_url'] = '';
+$config['product_name'] = 'Webmail - {{ domain }}';
+$config['des_key'] = '{{ lookup("password", "/dev/null length=24 chars=ascii_letters,digits") }}';
+$config['plugins'] = [];
+$config['skin'] = 'elastic';
+$config['default_host'] = 'localhost';
+$config['mail_domain'] = '{{ domain }}';

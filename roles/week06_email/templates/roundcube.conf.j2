@@ -1,0 +1,13 @@
+<VirtualHost *:80>
+    ServerName {{ mail_domain }}
+    DocumentRoot {{ roundcube_root }}
+
+    <Directory "{{ roundcube_root }}">
+        Options +FollowSymLinks -Indexes
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    ErrorLog /var/log/httpd/{{ mail_domain }}-error.log
+    CustomLog /var/log/httpd/{{ mail_domain }}-access.log combined
+</VirtualHost>

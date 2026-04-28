@@ -1,0 +1,3 @@
+@ IN TXT "v=spf1 a mx ip4:{{ vm_public_ip }} -all"
+mail IN A {{ vm_public_ip }}
+@ IN MX 10 mail.{{ domain }}.

@@ -1,0 +1,25 @@
+# Week 06 Postfix config
+compatibility_level = 3.6
+myhostname = {{ mail_domain }}
+mydomain = {{ domain }}
+myorigin = $mydomain
+inet_interfaces = all
+inet_protocols = ipv4
+mydestination = $myhostname, localhost.$mydomain, localhost, $mydomain
+mynetworks = {{ postfix_mynetworks }}
+home_mailbox = Maildir/
+smtpd_banner = $myhostname ESMTP
+biff = no
+append_dot_mydomain = no
+readme_directory = no
+maillog_file = /var/log/maillog
+
+# Dovecot SASL auth for local users
+smtpd_sasl_type = dovecot
+smtpd_sasl_path = private/auth
+smtpd_sasl_auth_enable = yes
+smtpd_sasl_security_options = noanonymous
+smtpd_recipient_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination
+
+# Deliver local mail to Maildir through Dovecot LDA
+mailbox_command = /usr/libexec/dovecot/deliver

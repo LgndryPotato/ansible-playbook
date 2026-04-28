@@ -1,0 +1,28 @@
+---
+vm_name: "{{ ansible_hostname }}"
+base_domain: "{{ domain | default(vm_name ~ '.sysadm.ee') }}"
+
+frontpage_domain: "{{ base_domain }}"
+inventory_domain: "inventory.{{ base_domain }}"
+blog_domain: "blog.{{ base_domain }}"
+
+inventory_token: "845e6732f32b81dd778972703474ccbb"
+inventory_port: 5000
+
+static_site_repo: "https://gitlab.cs.ut.ee/systemadministration/fizzops-static-site.git"
+inventory_api_repo: "https://gitlab.cs.ut.ee/systemadministration/inventory-api.git"
+
+# CentOS/RHEL Apache document roots
+frontpage_root: "/var/www/{{ frontpage_domain }}"
+wordpress_root: "/var/www/{{ blog_domain }}"
+inventory_app_dir: "/usr/local/lib/inventory"
+
+wp_db_name: "wordpress"
+wp_db_user: "wpuser"
+wp_db_password: "ChangeThisPassword123!"
+
+# MariaDB socket on CentOS Stream in this lab VM
+mysql_socket: "/var/lib/mysql/mysql.sock"
+
+# Arch-only optional flag; keep false for CentOS.
+enable_modsecurity_aur: false

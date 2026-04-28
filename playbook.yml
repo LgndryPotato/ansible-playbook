@@ -1,0 +1,19 @@
+- hosts: vm1
+  become: yes
+
+  vars:
+    vm_name: "c11483vm"
+    domain: "{{ vm_name }}.sysadm.ee"
+    inventory_domain: "inventory.{{ vm_name }}.sysadm.ee"
+    blog_domain: "blog.{{ vm_name }}.sysadm.ee"
+    inventory_token: "845e6732f32b81dd778972703474ccbb"
+    vm_public_ip: "172.17.90.60"
+
+  roles:
+    - role: etais
+    - role: week04_web
+      tags: week04_web
+    - role: week05_dns
+      tags: week05_dns
+    - role: week06_email
+      tags: week06_email

@@ -1,0 +1,16 @@
+---
+# Week 06 email defaults
+vm_name: "c11483vm"
+vm_public_ip: "172.17.90.60"
+domain: "{{ vm_name }}.sysadm.ee"
+mail_domain: "mail.{{ domain }}"
+mail_user: "marketing"
+mail_password: "ChangeThisPassword123!"
+mail_test_recipient: "nagios@scoring.sysadm.ee"
+mail_test_subject: "Week06 test from {{ mail_user }}@{{ domain }}"
+mail_test_body: "Hello from {{ mail_user }}@{{ domain }}"
+roundcube_db_name: "roundcubemail"
+roundcube_db_user: "roundcube"
+roundcube_db_password: "ChangeThisRoundcubePassword123!"
+roundcube_root: "/var/www/{{ mail_domain }}"
+postfix_mynetworks: "127.0.0.0/8 [::1]/128"

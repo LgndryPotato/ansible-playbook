@@ -1,0 +1,23 @@
+---
+# Week 05 DNS role defaults.
+# Override vm_name and vm_public_ip from playbook.yml.
+vm_name: "c11483vm"
+dns_domain: "{{ vm_name }}.sysadm.ee"
+
+# IMPORTANT:
+# For scoring, this must be your floating/public IP, for example 172.17.90.60.
+# If left empty, the role falls back to ansible_default_ipv4.address, which is usually the internal IP.
+vm_public_ip: ""
+
+dns_authoritative_port: 5353
+dns_zone_dir: /var/lib/knot/zones
+
+# Course secondary DNS / transfer settings from the Week 05 lab.
+course_dns_notify_ip: "193.40.153.43"
+course_dns_transfer_ips:
+  - "193.40.153.43"
+  - "172.17.89.217"
+
+# Use immutable /etc/resolv.conf so NetworkManager does not overwrite it.
+# The role removes immutable before writing and enables it after writing.
+dns_make_resolv_conf_immutable: true

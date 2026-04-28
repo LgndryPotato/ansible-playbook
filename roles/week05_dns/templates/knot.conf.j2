@@ -1,0 +1,28 @@
+# Managed by Ansible week05_dns.
+# Authoritative DNS server on port {{ dns_authoritative_port }}.
+
+server:
+  listen: 0.0.0.0@{{ dns_authoritative_port }}
+  listen: ::@{{ dns_authoritative_port }}
+
+log:
+  - target: syslog
+    any: info
+
+remote:
+  - id: course-secondary
+    address: {{ course_dns_notify_ip }}@53
+
+acl:
+  - id: allow-course-transfer
+    address: [{% for ip in course_dns_transfer_ips %}{{ ip }}{% if not loop.last %}, {% endif %}{% endfor %}]
+    action: transfer
+
+zone:
+  - domain: {{ dns_domain }}.
+    file: {{ dns_zone_dir }}/{{ dns_domain }}.zone
+    notify: course-secondary
+    acl: allow-course-transfer
+
+  - domain: {{ reverse_zone }}.
+    file: {{ dns_zone_dir }}/{{ reverse_zone }}.zone

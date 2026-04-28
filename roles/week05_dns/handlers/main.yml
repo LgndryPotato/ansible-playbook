@@ -1,0 +1,21 @@
+---
+- name: restart kresd
+  ansible.builtin.systemd:
+    name: kresd@1.service
+    state: restarted
+    enabled: true
+
+- name: restart knot
+  ansible.builtin.systemd:
+    name: knot
+    state: restarted
+    enabled: true
+
+- name: reload knot
+  ansible.builtin.command: knotc reload
+  changed_when: true
+
+- name: reload firewalld
+  ansible.builtin.systemd:
+    name: firewalld
+    state: reloaded

@@ -1,0 +1,15 @@
+<VirtualHost *:80>
+    ServerName {{ inventory_domain }}
+
+    RewriteEngine On
+    RewriteCond "%{HTTP:Authorization}" "!^Bearer {{ inventory_token }}$"
+    RewriteRule "^/api/v1/inventory" "-" [F]
+
+    ProxyPreserveHost On
+    ProxyPass / http://127.0.0.1:{{ inventory_port }}/
+    ProxyPassReverse / http://127.0.0.1:{{ inventory_port }}/
+
+    ForensicLog /var/log/httpd/{{ inventory_domain }}-forensic.log
+    ErrorLog /var/log/httpd/{{ inventory_domain }}-error.log
+    CustomLog /var/log/httpd/{{ inventory_domain }}-access.log combined
+</VirtualHost>

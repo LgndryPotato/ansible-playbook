@@ -1,0 +1,31 @@
+- name: Add user scoring
+  user:
+    name: scoring
+    state: present
+
+- name: Create .ssh directory for scoring
+  file:
+    path: /home/scoring/.ssh
+    state: directory
+    owner: scoring
+    group: scoring
+    mode: '0700'
+
+- name: Download scoring public key
+  get_url:
+    url: https://scoring.sysadm.ee/files/id_rsa.pub
+    dest: /home/scoring/.ssh/authorized_keys
+    owner: scoring
+    group: scoring
+    mode: '0600'
+
+- name: Give scoring passwordless sudo
+  lineinfile:
+    dest: /etc/sudoers.d/scoring
+    line: "scoring ALL=(ALL) NOPASSWD: ALL"
+    state: present
+    create: yes
+    owner: root
+    group: root
+    mode: '0440'
+    validate: 'visudo -cf %s'

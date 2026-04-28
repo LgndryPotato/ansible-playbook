@@ -1,0 +1,16 @@
+$TTL 900
+@       IN  SOA  ns1.{{ dns_domain }}. admin.{{ dns_domain }}. (
+                  {{ ansible_date_time.epoch }}  ; Serial
+                  900           ; Refresh
+                  300           ; Retry
+                  7200          ; Expire
+                  600 )         ; Negative Cache TTL
+
+@              IN  NS     ns1.{{ dns_domain }}.
+@              IN  A      {{ dns_effective_ip }}
+ns1            IN  A      {{ dns_effective_ip }}
+blog           IN  CNAME  {{ dns_domain }}.
+inventory      IN  CNAME  {{ dns_domain }}.
+mail           IN  A      {{ dns_effective_ip }}
+@              IN  MX 10  mail.{{ dns_domain }}.
+@              IN  TXT    "v=spf1 mx a ip4:{{ dns_effective_ip }} ~all"

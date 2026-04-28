@@ -1,0 +1,26 @@
+---
+- name: restart httpd
+  ansible.builtin.systemd:
+    name: httpd
+    state: restarted
+    enabled: true
+    daemon_reload: true
+
+- name: restart inventory-api
+  ansible.builtin.systemd:
+    name: inventory-api
+    state: restarted
+    enabled: true
+    daemon_reload: true
+
+- name: restart mariadb
+  ansible.builtin.systemd:
+    name: mariadb
+    state: restarted
+    enabled: true
+
+- name: restart php-fpm
+  ansible.builtin.systemd:
+    name: php-fpm
+    state: restarted
+    enabled: true

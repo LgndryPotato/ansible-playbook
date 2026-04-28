@@ -1,0 +1,14 @@
+-- Week 05 Knot Resolver configuration.
+-- Recursive resolver on port 53 for local and remote DNS queries.
+
+net.listen('127.0.0.1', 53, { kind = 'dns' })
+net.listen('0.0.0.0', 53, { kind = 'dns' })
+net.listen('::1', 53, { kind = 'dns' })
+
+modules = {
+  'hints > iterate',
+  'stats',
+  'predict',
+}
+
+cache.size = 100 * MB
