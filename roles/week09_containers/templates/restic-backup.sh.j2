@@ -1,0 +1,5 @@
+#!/bin/bash
+set -euo pipefail
+source {{ restic_env_file }}
+/usr/bin/restic backup {{ restic_backup_path }}
+/usr/bin/restic snapshots

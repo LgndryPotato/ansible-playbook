@@ -1,0 +1,258 @@
+---
+- name: Install filesystem, NFS and Samba packages
+  ansible.builtin.dnf:
+    name:
+      - xfsprogs
+      - nfs-utils
+      - samba
+      - samba-client
+      - cifs-utils
+      - policycoreutils-python-utils
+    state: present
+  when: ansible_facts['os_family'] == 'RedHat'
+  tags: week08_filesystems
+
+- name: Check if data partition exists
+  ansible.builtin.stat:
+    path: "{{ data_partition }}"
+  register: data_partition_stat
+  tags: week08_filesystems
+
+- name: Create partition on data disk
+  community.general.parted:
+    device: "{{ data_disk }}"
+    number: 1
+    state: present
+    label: gpt
+    part_start: 1MiB
+    part_end: 100%
+  when: not data_partition_stat.stat.exists
+  tags: week08_filesystems
+
+- name: Create XFS filesystem on data partition
+  community.general.filesystem:
+    fstype: xfs
+    dev: "{{ data_partition }}"
+  when: not data_partition_stat.stat.exists
+  tags: week08_filesystems
+
+- name: Ensure /data exists
+  ansible.builtin.file:
+    path: "{{ data_mount }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: week08_filesystems
+
+- name: Mount /data filesystem
+  ansible.posix.mount:
+    path: "{{ data_mount }}"
+    src: "{{ data_partition }}"
+    fstype: xfs
+    opts: defaults
+    state: mounted
+  notify:
+    - daemon reload
+    - restorecon data
+  tags: week08_filesystems
+
+- name: Create samba group
+  ansible.builtin.group:
+    name: samba_group
+    state: present
+  tags: week08_filesystems
+
+- name: Create data subdirectories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ inventory_storage_dir }}", owner: root, group: root, mode: "0777" }
+    - { path: "{{ nfs_export_dir }}", owner: root, group: root, mode: "0777" }
+    - { path: "{{ samba_share_dir }}", owner: root, group: "{{ samba_group }}", mode: "0770" }
+  tags: week08_filesystems
+
+- name: Update inventory API service to use persistent storage
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/system/inventory-api.service
+    regexp: '^ExecStart='
+    line: 'ExecStart=/usr/bin/python /usr/local/lib/inventory/v1/app.py --storage {{ inventory_storage_file }}'
+  notify: restart inventory-api
+  tags: week08_filesystems
+
+- name: Ensure empty inventory storage file exists
+  ansible.builtin.file:
+    path: "{{ inventory_storage_file }}"
+    state: touch
+    owner: root
+    group: root
+    mode: "0666"
+  tags: week08_filesystems
+
+- name: Ensure inventory storage file has content for scoring
+  ansible.builtin.copy:
+    dest: "{{ inventory_storage_file }}"
+    content: |
+      {"week08-test":{"quantity":1}}
+    owner: root
+    group: root
+    mode: "0666"
+  tags: week08_filesystems
+
+- name: Configure NFS export
+  ansible.builtin.copy:
+    dest: /etc/exports.d/week08.exports
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {{ nfs_export_dir }} *(rw,sync,no_subtree_check,no_root_squash)
+  notify:
+    - reload nfs exports
+    - restart nfs-server
+  tags: week08_filesystems
+
+- name: Enable and start NFS services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - rpcbind
+    - nfs-server
+  tags: week08_filesystems
+
+- name: Ensure NFS mount directory exists
+  ansible.builtin.file:
+    path: "{{ nfs_mount_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: week08_filesystems
+
+- name: Mount NFS export locally
+  ansible.posix.mount:
+    path: "{{ nfs_mount_dir }}"
+    src: "127.0.0.1:{{ nfs_export_dir }}"
+    fstype: nfs
+    opts: defaults,_netdev
+    state: mounted
+  tags: week08_filesystems
+
+- name: Ensure Samba group exists
+  ansible.builtin.group:
+    name: "{{ samba_group }}"
+    state: present
+  tags: week08_filesystems
+
+- name: Ensure scoring user exists and is in Samba group
+  ansible.builtin.user:
+    name: "{{ samba_user }}"
+    groups: "{{ samba_group }}"
+    append: true
+    shell: /bin/bash
+  tags: week08_filesystems
+
+- name: Set Samba directory ownership
+  ansible.builtin.file:
+    path: "{{ samba_share_dir }}"
+    state: directory
+    owner: root
+    group: "{{ samba_group }}"
+    mode: "0770"
+  tags: week08_filesystems
+
+- name: Deploy Samba configuration
+  ansible.builtin.template:
+    src: smb.conf.j2
+    dest: /etc/samba/smb.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - restart smb
+    - restart nmb
+  tags: week08_filesystems
+
+- name: Set Samba password for scoring user
+  ansible.builtin.shell: |
+    set -o pipefail
+    printf '%s\n%s\n' '{{ samba_password }}' '{{ samba_password }}' | smbpasswd -a -s {{ samba_user }}
+    smbpasswd -e {{ samba_user }}
+  args:
+    executable: /bin/bash
+  changed_when: false
+  tags: week08_filesystems
+
+- name: Set SELinux context for Samba share
+  community.general.sefcontext:
+    target: "{{ samba_share_dir }}(/.*)?"
+    setype: samba_share_t
+    state: present
+  notify: restorecon samba
+  tags: week08_filesystems
+
+- name: Enable and start Samba services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - smb
+    - nmb
+  tags: week08_filesystems
+
+- name: Create Samba credentials file
+  ansible.builtin.copy:
+    dest: "{{ samba_credentials_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      username={{ samba_user }}
+      password={{ samba_password }}
+  tags: week08_filesystems
+
+- name: Ensure Samba mount directory exists
+  ansible.builtin.file:
+    path: "{{ samba_mount_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: week08_filesystems
+
+- name: Mount Samba share locally
+  ansible.posix.mount:
+    path: "{{ samba_mount_dir }}"
+    src: "//127.0.0.1/{{ samba_share_name }}"
+    fstype: cifs
+    opts: "credentials={{ samba_credentials_file }},_netdev,vers=3.0"
+    state: mounted
+  tags: week08_filesystems
+
+- name: Open filesystem service firewall ports
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop:
+    - nfs
+    - mountd
+    - rpc-bind
+    - samba
+  tags: week08_filesystems
+
+- name: Ensure inventory API has written to storage file
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:5000/"
+    method: GET
+    status_code: [200, 404, 405]
+  failed_when: false
+  tags: week08_filesystems

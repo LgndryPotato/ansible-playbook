@@ -1,0 +1,53 @@
+---
+# Week 09 Containers defaults
+vm_name: "c11483vm"
+vm_public_ip: "172.17.90.60"
+domain: "{{ vm_name }}.sysadm.ee"
+s3_domain: "s3.{{ domain }}"
+inventory_domain: "inventory.{{ domain }}"
+inventory_token: "845e6732f32b81dd778972703474ccbb"
+
+# Existing TLS files from Week 07. A wildcard certificate for *.{{ domain }} is ideal.
+cert_file: /etc/pki/tls/certs/server.crt
+key_file: /etc/pki/tls/private/server.key
+ca_file: /etc/pki/tls/certs/ca-chain.crt
+
+# Docker network required by the lab. Do not use Docker default 172.16.0.0/12 ranges in UT cloud.
+docker_bip: "192.168.67.1/24"
+docker_fixed_cidr: "192.168.67.0/24"
+docker_mtu: 1400
+
+# Images. Override these if your VM cannot pull from Docker Hub / Quay.
+hello_world_image: "registry.hpc.ut.ee/mirror/library/hello-world:latest"
+minio_image: "quay.io/minio/minio:latest"
+inventory_image_name: "week09-inventory-api:latest"
+
+# MinIO / S3
+minio_container_name: minio
+minio_volume_name: minio-data
+minio_root_user: inventoryuser
+minio_root_password: "inventorypassword123"
+minio_access_key: "{{ minio_root_user }}"
+minio_secret_key: "{{ minio_root_password }}"
+minio_bucket: inventory-backup
+minio_api_port: 9000
+minio_console_port: 9001
+mc_binary_url: "https://dl.min.io/client/mc/release/linux-amd64/mc"
+
+# Restic
+restic_password: "ChangeThisResticPassword123!"
+restic_env_file: /etc/restic-inventory.env
+restic_backup_path: /data/inventory
+restic_repository: "s3:http://127.0.0.1:9000/{{ minio_bucket }}"
+restic_cron_hour: "2"
+restic_cron_minute: "0"
+
+# Inventory API containerisation
+inventory_api_source_dir: /usr/local/lib/inventory/v1
+inventory_api_build_dir: /opt/week09-inventory-api
+inventory_container_name: inventory-api
+inventory_data_dir: /data/inventory
+inventory_host_port: 5000
+
+# Knot DNS zone path from Week 05. This role patches the live zone with s3 A record.
+dns_zone_file: "/var/lib/knot/zones/{{ domain }}.zone"

@@ -93,17 +93,21 @@
     mode: "0755"
   tags: apache
 
-- name: Enable required Apache modules and conf.d includes
-  ansible.builtin.blockinfile:
+- name: Ensure forensic module is loaded
+  ansible.builtin.lineinfile:
     path: /etc/httpd/conf/httpd.conf
-    marker: "# {mark} ANSIBLE WEEK04 MODULES"
-    block: |
-      LoadModule proxy_module modules/mod_proxy.so
-      LoadModule proxy_http_module modules/mod_proxy_http.so
-      LoadModule rewrite_module modules/mod_rewrite.so
-      LoadModule headers_module modules/mod_headers.so
-      LoadModule log_forensic_module modules/mod_log_forensic.so
-      IncludeOptional conf.d/*.conf
+    regexp: '^LoadModule log_forensic_module'
+    line: 'LoadModule log_forensic_module modules/mod_log_forensic.so'
+    state: present
+  notify: restart httpd
+  tags: apache
+
+- name: Ensure conf.d include exists only once
+  ansible.builtin.lineinfile:
+    path: /etc/httpd/conf/httpd.conf
+    regexp: '^IncludeOptional conf\.d/\*\.conf$'
+    line: 'IncludeOptional conf.d/*.conf'
+    state: present
   notify: restart httpd
   tags: apache
 

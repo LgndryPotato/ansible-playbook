@@ -1,0 +1,359 @@
+---
+- name: Install prerequisite packages for Week 09
+  ansible.builtin.dnf:
+    name:
+      - dnf-plugins-core
+      - curl
+      - ca-certificates
+      - python3-pip
+      - restic
+      - httpd
+      - mod_ssl
+    state: present
+  when: ansible_os_family == "RedHat"
+  tags: week09_containers
+
+- name: Create Docker configuration directory
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    mode: "0755"
+  tags: week09_containers
+
+- name: Deploy Docker daemon configuration before Docker starts
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart docker
+  tags: week09_containers
+
+- name: Add Docker CE repository
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/centos/docker-ce.repo
+    dest: /etc/yum.repos.d/docker-ce.repo
+    owner: root
+    group: root
+    mode: "0644"
+  when: ansible_os_family == "RedHat"
+  tags: week09_containers
+
+- name: Install Docker packages
+  ansible.builtin.dnf:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+    state: present
+  when: ansible_os_family == "RedHat"
+  tags: week09_containers
+
+- name: Enable and start Docker
+  ansible.builtin.service:
+    name: docker
+    enabled: true
+    state: started
+  tags: week09_containers
+
+- name: Ensure Docker is using the configured bridge range
+  ansible.builtin.command: ip -4 addr show docker0
+  register: docker0_addr
+  changed_when: false
+  failed_when: docker0_addr.rc != 0 or '192.168.67.1/24' not in docker0_addr.stdout
+  tags: week09_containers
+
+- name: Run hello-world container through the UT mirror
+  ansible.builtin.command: docker run --rm {{ hello_world_image }}
+  register: hello_world_result
+  changed_when: false
+  failed_when: hello_world_result.rc != 0
+  tags: week09_containers
+
+- name: Create MinIO named volume
+  ansible.builtin.command: docker volume create {{ minio_volume_name }}
+  register: minio_volume_create
+  changed_when: minio_volume_name in minio_volume_create.stdout
+  tags: week09_containers
+
+- name: Pull MinIO image
+  ansible.builtin.command: docker pull {{ minio_image }}
+  register: minio_pull
+  changed_when: "'Downloaded newer image' in minio_pull.stdout or 'Status: Downloaded' in minio_pull.stdout"
+  tags: week09_containers
+
+- name: Check if MinIO container exists
+  ansible.builtin.command: docker inspect {{ minio_container_name }}
+  register: minio_inspect
+  changed_when: false
+  failed_when: false
+  tags: week09_containers
+
+- name: Remove existing MinIO container if present
+  ansible.builtin.command: docker rm -f {{ minio_container_name }}
+  when: minio_inspect.rc == 0
+  tags: week09_containers
+
+- name: Run MinIO container with named volume and localhost-only ports
+  ansible.builtin.command: >-
+    docker run -d
+    --name {{ minio_container_name }}
+    --restart unless-stopped
+    -p 127.0.0.1:{{ minio_api_port }}:9000
+    -p 127.0.0.1:{{ minio_console_port }}:9001
+    -e MINIO_ROOT_USER={{ minio_root_user }}
+    -e MINIO_ROOT_PASSWORD={{ minio_root_password }}
+    -v {{ minio_volume_name }}:/data
+    {{ minio_image }} server /data --console-address ':9001'
+  tags: week09_containers
+
+- name: Wait until MinIO health endpoint is ready
+  ansible.builtin.uri:
+    url: http://127.0.0.1:{{ minio_api_port }}/minio/health/live
+    status_code: 200
+  register: minio_health
+  retries: 20
+  delay: 3
+  until: minio_health.status == 200
+  tags: week09_containers
+
+- name: Install MinIO client mc
+  ansible.builtin.get_url:
+    url: "{{ mc_binary_url }}"
+    dest: /usr/local/bin/mc
+    mode: "0755"
+  tags: week09_containers
+
+- name: Configure mc alias for local MinIO
+  ansible.builtin.command: >-
+    /usr/local/bin/mc alias set sysadm
+    http://127.0.0.1:{{ minio_api_port }}
+    {{ minio_root_user }} {{ minio_root_password }}
+  changed_when: false
+  tags: week09_containers
+
+- name: Create MinIO backup bucket
+  ansible.builtin.command: /usr/local/bin/mc mb --ignore-existing sysadm/{{ minio_bucket }}
+  register: minio_bucket_create
+  changed_when: "'Bucket created successfully' in minio_bucket_create.stdout"
+  tags: week09_containers
+
+- name: Add s3 A record to live Knot zone
+  ansible.builtin.lineinfile:
+    path: "{{ dns_zone_file }}"
+    regexp: '^s3\s+IN\s+A\s+'
+    line: "s3             IN  A      {{ vm_public_ip }}"
+    insertafter: '^ns1\s+IN\s+A\s+'
+  when: dns_zone_file is defined
+  tags: week09_containers
+
+- name: Bump DNS zone serial after adding s3 record
+  ansible.builtin.replace:
+    path: "{{ dns_zone_file }}"
+    regexp: '^\s+[0-9]+\s+; Serial'
+    replace: "                  {{ ansible_date_time.epoch }}  ; Serial"
+  when: dns_zone_file is defined
+  tags: week09_containers
+
+- name: Reload Knot DNS after s3 record update
+  ansible.builtin.command: knotc reload
+  changed_when: false
+  failed_when: false
+  tags: week09_containers
+
+- name: Open HTTPS in firewalld
+  ansible.posix.firewalld:
+    service: https
+    permanent: true
+    immediate: true
+    state: enabled
+  when: ansible_os_family == "RedHat"
+  tags: week09_containers
+
+- name: Deploy Apache HTTPS virtual host for MinIO S3 endpoint
+  ansible.builtin.template:
+    src: s3-vhost.conf.j2
+    dest: /etc/httpd/conf.d/04-s3-minio.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart httpd
+  tags: week09_containers
+
+- name: Validate Apache configuration
+  ansible.builtin.command: apachectl configtest
+  changed_when: false
+  tags: week09_containers
+
+- name: Ensure Apache is enabled and running
+  ansible.builtin.service:
+    name: httpd
+    enabled: true
+    state: started
+  tags: week09_containers
+
+- name: Apply pending Apache handler changes
+  ansible.builtin.meta: flush_handlers
+  tags: week09_containers
+
+
+- name: Create inventory data directory
+  ansible.builtin.file:
+    path: "{{ inventory_data_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: week09_containers
+
+- name: Seed inventory data marker file
+  ansible.builtin.copy:
+    dest: "{{ inventory_data_dir }}/README.txt"
+    content: "Inventory API persistent data directory for Week 09 container and restic backup.\n"
+    owner: root
+    group: root
+    mode: "0644"
+  tags: week09_containers
+
+- name: Create inventory API Docker build directory
+  ansible.builtin.file:
+    path: "{{ inventory_api_build_dir }}"
+    state: directory
+    mode: "0755"
+  tags: week09_containers
+
+- name: Copy existing inventory API app.py into Docker build directory
+  ansible.builtin.copy:
+    src: "{{ inventory_api_source_dir }}/app.py"
+    dest: "{{ inventory_api_build_dir }}/app.py"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0644"
+  tags: week09_containers
+
+- name: Ensure inventory API listens on all interfaces inside Docker
+  ansible.builtin.replace:
+    path: "{{ inventory_api_build_dir }}/app.py"
+    regexp: 'host=["'']127\.0\.0\.1["'']'
+    replace: "host='0.0.0.0'"
+  tags: week09_containers
+
+- name: Deploy inventory API Dockerfile
+  ansible.builtin.template:
+    src: Dockerfile.inventory-api.j2
+    dest: "{{ inventory_api_build_dir }}/Dockerfile"
+    owner: root
+    group: root
+    mode: "0644"
+  tags: week09_containers
+
+- name: Build inventory API Docker image
+  ansible.builtin.command: docker build -t {{ inventory_image_name }} {{ inventory_api_build_dir }}
+  register: inventory_build
+  changed_when: "'Successfully built' in inventory_build.stdout or 'writing image' in inventory_build.stdout or inventory_build.rc == 0"
+  tags: week09_containers
+
+- name: Stop and disable old inventory API systemd service names
+  ansible.builtin.service:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  loop:
+    - inventory-api
+    - inventory
+  failed_when: false
+  tags: week09_containers
+
+- name: Check if inventory API container exists
+  ansible.builtin.command: docker inspect {{ inventory_container_name }}
+  register: inventory_container_inspect
+  changed_when: false
+  failed_when: false
+  tags: week09_containers
+
+- name: Remove existing inventory API container if present
+  ansible.builtin.command: docker rm -f {{ inventory_container_name }}
+  when: inventory_container_inspect.rc == 0
+  tags: week09_containers
+
+- name: Run inventory API as Docker container with persistent data bind mount
+  ansible.builtin.command: >-
+    docker run -d
+    --name {{ inventory_container_name }}
+    --restart unless-stopped
+    -p 127.0.0.1:{{ inventory_host_port }}:5000
+    -v {{ inventory_data_dir }}:/data/inventory
+    {{ inventory_image_name }}
+  tags: week09_containers
+
+- name: Deploy restic environment file
+  ansible.builtin.template:
+    src: restic-inventory.env.j2
+    dest: "{{ restic_env_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  tags: week09_containers
+
+- name: Initialise restic repository if needed
+  ansible.builtin.shell: |
+    set -e
+    source {{ restic_env_file }}
+    if restic snapshots >/dev/null 2>&1; then
+      echo "repository already exists"
+    else
+      restic init || true
+    fi
+  args:
+    executable: /bin/bash
+  register: restic_init_result
+  changed_when: "'created restic repository' in restic_init_result.stdout"
+  failed_when: >
+    restic_init_result.rc != 0 and
+    'already initialized' not in restic_init_result.stderr
+  tags: week09_containers
+
+- name: Run initial restic backup of inventory data
+  ansible.builtin.shell: |
+    set -e
+    source {{ restic_env_file }}
+    restic backup {{ restic_backup_path }}
+    restic snapshots
+  args:
+    executable: /bin/bash
+  register: restic_backup_result
+  changed_when: true
+  tags: week09_containers
+
+- name: Install restic backup helper script
+  ansible.builtin.template:
+    src: restic-backup.sh.j2
+    dest: /usr/local/sbin/restic-inventory-backup
+    owner: root
+    group: root
+    mode: "0750"
+  tags: week09_containers
+
+- name: Schedule daily restic inventory backup
+  ansible.builtin.cron:
+    name: "Restic backup of inventory"
+    user: root
+    minute: "{{ restic_cron_minute }}"
+    hour: "{{ restic_cron_hour }}"
+    job: "/usr/local/sbin/restic-inventory-backup >/var/log/restic-inventory-backup.log 2>&1"
+  tags: week09_containers
+
+- name: Verify inventory API still responds through Apache with bearer token
+  ansible.builtin.uri:
+    url: "http://127.0.0.1/api/v1/inventory"
+    headers:
+      Host: "{{ inventory_domain }}"
+      Authorization: "Bearer {{ inventory_token }}"
+    status_code: 200
+  register: inventory_api_check
+  retries: 10
+  delay: 2
+  until: inventory_api_check.status == 200
+  tags: week09_containers

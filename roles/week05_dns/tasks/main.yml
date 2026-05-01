@@ -84,8 +84,23 @@
     owner: root
     group: root
     mode: "0644"
-  notify: restart kresd
   tags: dns
+
+- name: Configure resolv.conf to use local DNS
+  ansible.builtin.copy:
+    dest: /etc/resolv.conf
+    content: |
+      # Managed by Ansible week05_dns.
+      nameserver 127.0.0.1
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Restart kresd
+  ansible.builtin.systemd:
+    name: kresd@1
+    state: restarted
+    enabled: true
 
 - name: Fix Knot Resolver runtime directory ownership if present
   ansible.builtin.file:

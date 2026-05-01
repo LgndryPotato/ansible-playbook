@@ -1,6 +1,15 @@
 - hosts: vm1
   become: yes
 
+  vars_prompt:
+    - name: vault_ldap_username
+      prompt: "Enter UT username"
+      private: false
+
+    - name: vault_ldap_password
+      prompt: "Enter UT password"
+      private: true
+
   vars:
     vm_name: "c11483vm"
     domain: "{{ vm_name }}.sysadm.ee"
@@ -17,3 +26,9 @@
       tags: week05_dns
     - role: week06_email
       tags: week06_email
+    - role: week07_tls
+      tags: week07_tls
+    - role: week08_filesystems
+      tags: week08_filesystems
+    - role: week09_containers
+      tags: week09_containers

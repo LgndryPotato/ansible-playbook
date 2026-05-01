@@ -1,0 +1,9 @@
+---
+vm_name: c11483vm
+domain: "{{ vm_name }}.sysadm.ee"
+
+cert_file: /etc/pki/tls/certs/server.crt
+key_file: /etc/pki/tls/private/server.key
+ca_file: /etc/pki/tls/certs/ca-chain.crt
+
+web_tls_conf: /etc/httpd/conf.d/week07-tls-vhosts.conf

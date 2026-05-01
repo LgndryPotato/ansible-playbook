@@ -12,3 +12,7 @@ modules = {
 }
 
 cache.size = 100 * MB
+
+trust_anchors.remove('.')
+
+policy.add(policy.all(policy.FORWARD('8.8.8.8')))

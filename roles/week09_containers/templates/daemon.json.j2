@@ -1,0 +1,10 @@
+{
+  "bip": "{{ docker_bip }}",
+  "fixed-cidr": "{{ docker_fixed_cidr }}",
+  "storage-driver": "overlay2",
+  "mtu": {{ docker_mtu }},
+  "default-address-pools": [
+    { "base": "192.168.167.0/24", "size": 24 },
+    { "base": "192.168.168.0/24", "size": 24 }
+  ]
+}

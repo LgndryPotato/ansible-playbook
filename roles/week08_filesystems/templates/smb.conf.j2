@@ -1,0 +1,13 @@
+[global]
+    workgroup = WORKGROUP
+    security = user
+    passdb backend = tdbsam
+    map to guest = Bad User
+
+[{{ samba_share_name }}]
+    path = {{ samba_share_dir }}
+    browsable = yes
+    writable = yes
+    valid users = @{{ samba_group }}
+    create mask = 0660
+    directory mask = 0770

@@ -1,0 +1,144 @@
+---
+- name: Install TLS packages
+  ansible.builtin.dnf:
+    name:
+      - mod_ssl
+      - cyrus-sasl-plain
+    state: present
+  when: ansible_facts['os_family'] == 'RedHat'
+  tags: week07_tls
+
+- name: Request wildcard certificate from Vault
+  community.hashi_vault.vault_pki_generate_certificate:
+    url: "https://vault.sysadm.ee"
+    auth_method: ldap
+    username: "{{ vault_ldap_username }}"
+    password: "{{ vault_ldap_password }}"
+    engine_mount_point: pki
+    role_name: sysadm.ee
+    common_name: "*.{{ domain }}"
+    alt_names: "{{ domain }}"
+  register: vault_pki_response
+  delegate_to: localhost
+  become: false
+  tags: week07_tls
+
+- name: Ensure certificate directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /etc/pki/tls/certs, mode: "0755" }
+    - { path: /etc/pki/tls/private, mode: "0700" }
+  tags: week07_tls
+
+- name: Write certificate files
+  ansible.builtin.copy:
+    content: "{{ item.content }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - dest: "{{ cert_file }}"
+      content: "{{ vault_pki_response.data.data.certificate }}"
+      mode: "0644"
+    - dest: "{{ ca_file }}"
+      content: "{{ vault_pki_response.data.data.ca_chain | join('\n') }}"
+      mode: "0644"
+    - dest: "{{ key_file }}"
+      content: "{{ vault_pki_response.data.data.private_key }}"
+      mode: "0600"
+  notify:
+    - restart httpd
+    - restart postfix
+    - restart dovecot
+  tags: week07_tls
+
+- name: Ensure root HTTPS page contains vm name
+  ansible.builtin.copy:
+    dest: /var/www/html/index.html
+    content: "{{ vm_name }} HTTPS works\n"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart httpd
+  tags: week07_tls
+
+- name: Deploy HTTPS Apache virtual hosts
+  ansible.builtin.template:
+    src: tls-vhosts.conf.j2
+    dest: "{{ web_tls_conf }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart httpd
+  tags: week07_tls
+
+- name: Add Postfix TLS settings
+  ansible.builtin.blockinfile:
+    path: /etc/postfix/main.cf
+    marker: "# {mark} ANSIBLE WEEK07 POSTFIX TLS"
+    block: "{{ lookup('template', 'main-tls.cf.j2') }}"
+  notify: restart postfix
+  tags: week07_tls
+
+- name: Enable SMTPS in Postfix
+  ansible.builtin.blockinfile:
+    path: /etc/postfix/master.cf
+    marker: "# {mark} ANSIBLE WEEK07 SMTPS"
+    block: "{{ lookup('template', 'master-smtps.cf.j2') }}"
+  notify: restart postfix
+  tags: week07_tls
+
+- name: Remove direct Dovecot ssl=no setting
+  ansible.builtin.lineinfile:
+    path: /etc/dovecot/dovecot.conf
+    regexp: '^ssl = no'
+    state: absent
+  notify: restart dovecot
+  tags: week07_tls
+
+- name: Ensure Dovecot includes conf.d configs
+  ansible.builtin.lineinfile:
+    path: /etc/dovecot/dovecot.conf
+    line: '!include conf.d/*.conf'
+    state: present
+  notify: restart dovecot
+  tags: week07_tls
+
+- name: Configure Dovecot SSL override
+  ansible.builtin.template:
+    src: dovecot-ssl.conf.j2
+    dest: /etc/dovecot/conf.d/99-week07-ssl.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart dovecot
+  tags: week07_tls
+
+- name: Open TLS firewall ports
+  ansible.posix.firewalld:
+    port: "{{ item }}/tcp"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop:
+    - 443
+    - 465
+    - 993
+  tags: week07_tls
+
+- name: Enable services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - httpd
+    - postfix
+    - dovecot
+  tags: week07_tls

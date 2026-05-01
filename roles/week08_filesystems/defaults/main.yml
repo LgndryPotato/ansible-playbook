@@ -1,0 +1,19 @@
+---
+data_disk: /dev/vdb
+data_partition: /dev/vdb1
+data_mount: /data
+
+inventory_storage_dir: /data/inventory
+inventory_storage_file: /data/inventory/storage.db
+inventory_service: inventory-api
+
+nfs_export_dir: /data/nfs
+nfs_mount_dir: /mnt/nfs
+
+samba_share_name: sysadm
+samba_share_dir: /data/samba
+samba_mount_dir: /mnt/samba
+samba_group: samba_group
+samba_user: scoring
+samba_password: "2daysuperadmin"
+samba_credentials_file: /root/.smbcredentials-sysadm

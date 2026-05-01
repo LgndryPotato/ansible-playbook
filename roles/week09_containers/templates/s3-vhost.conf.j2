@@ -1,0 +1,23 @@
+<VirtualHost *:443>
+    ServerName {{ s3_domain }}
+
+    SSLEngine on
+    SSLCertificateFile {{ cert_file }}
+    SSLCertificateKeyFile {{ key_file }}
+{% if ca_file is defined and ca_file|length > 0 %}
+    SSLCertificateChainFile {{ ca_file }}
+{% endif %}
+
+    ProxyPreserveHost On
+    ProxyRequests Off
+    AllowEncodedSlashes NoDecode
+
+    RequestHeader set X-Forwarded-Proto "https"
+    RequestHeader set X-Forwarded-Port "443"
+
+    ProxyPass / http://127.0.0.1:{{ minio_api_port }}/ nocanon
+    ProxyPassReverse / http://127.0.0.1:{{ minio_api_port }}/
+
+    ErrorLog /var/log/httpd/{{ s3_domain }}-error.log
+    CustomLog /var/log/httpd/{{ s3_domain }}-access.log combined
+</VirtualHost>
