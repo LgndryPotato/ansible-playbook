@@ -1,0 +1,31 @@
+services:
+  minio:
+    container_name: {{ minio_container_name }}
+    image: {{ minio_image }}
+    command: server /data --console-address ':9001'
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:{{ minio_api_port }}:9000"
+      - "127.0.0.1:{{ minio_console_port }}:9001"
+    environment:
+      MINIO_ROOT_USER: "{{ minio_root_user }}"
+      MINIO_ROOT_PASSWORD: "{{ minio_root_password }}"
+    volumes:
+      - {{ minio_volume_name }}:/data
+    inventory:
+    container_name: {{ inventory_container_name }}
+    image: {{ inventory_image_name | default('inventory-api:lab11') }}
+    restart: unless-stopped
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=https://jaeger.sysadm.ee
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_SERVICE_NAME=inventory.{{ vm_name }}.sysadm.ee
+    ports:
+      - "127.0.0.1:{{ inventory_host_port }}:5000"
+    volumes:
+      - {{ inventory_data_dir }}:/data/inventory
+
+volumes:
+  {{ minio_volume_name }}:
+    external: true
+    name: {{ minio_external_volume_name }}

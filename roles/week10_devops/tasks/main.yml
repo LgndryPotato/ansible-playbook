@@ -1,0 +1,243 @@
+---
+- name: Install prerequisite packages for Week 10
+  ansible.builtin.dnf:
+    name:
+      - dnf-plugins-core
+      - curl
+      - ca-certificates
+    state: present
+  when: ansible_os_family == "RedHat"
+  tags: week10_devops
+
+- name: Create lab10 project directory
+  ansible.builtin.file:
+    path: "{{ week10_lab_dir }}"
+    state: directory
+    owner: centos
+    group: centos
+    mode: "0755"
+  tags: week10_devops
+
+- name: Install Dive RPM
+  ansible.builtin.dnf:
+    name: "{{ week10_dive_rpm_url }}"
+    state: present
+    disable_gpg_check: true
+  when: ansible_os_family == "RedHat"
+  tags: week10_devops
+
+- name: Add Trivy repository
+  ansible.builtin.yum_repository:
+    name: trivy
+    description: Trivy repository
+    baseurl: "{{ week10_trivy_repo_baseurl }}"
+    gpgcheck: true
+    gpgkey: "{{ week10_trivy_repo_gpgkey }}"
+    enabled: true
+  when: ansible_os_family == "RedHat"
+  tags: week10_devops
+
+- name: Install Trivy and Docker Compose plugin
+  ansible.builtin.dnf:
+    name:
+      - trivy
+      - docker-compose-plugin
+    state: present
+  when: ansible_os_family == "RedHat"
+  tags: week10_devops
+
+- name: Pull consultancy audit image without running it
+  ansible.builtin.command: docker pull {{ week10_consultancy_image }}
+  register: week10_consultancy_pull
+  changed_when: >-
+    'Downloaded newer image' in week10_consultancy_pull.stdout or
+    'Status: Downloaded' in week10_consultancy_pull.stdout
+  tags: week10_devops
+
+- name: Write malicious layer digest when known
+  ansible.builtin.copy:
+    dest: "{{ week10_lab_dir }}/malicious_layer.txt"
+    content: "{{ week10_malicious_layer_digest | trim }}\n"
+    owner: centos
+    group: centos
+    mode: "0644"
+  when: week10_malicious_layer_digest | trim | length > 0
+  tags: week10_devops
+
+- name: Write CRITICAL CVE ID when known
+  ansible.builtin.copy:
+    dest: "{{ week10_lab_dir }}/malicious_cve.txt"
+    content: "{{ week10_malicious_cve_id | trim }}\n"
+    owner: centos
+    group: centos
+    mode: "0644"
+  when: week10_malicious_cve_id | trim | length > 0
+  tags: week10_devops
+
+- name: Check if target inventory image exists
+  ansible.builtin.command: docker image inspect {{ inventory_image_name }}
+  register: week10_inventory_target_image
+  changed_when: false
+  failed_when: false
+  tags: week10_devops
+
+- name: Tag Week 9 inventory image for Compose when target image is missing
+  ansible.builtin.command: docker tag {{ inventory_source_image_name }} {{ inventory_image_name }}
+  when: week10_inventory_target_image.rc != 0
+  tags: week10_devops
+
+- name: Deploy Docker Compose file for MinIO and inventory API
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ week10_lab_dir }}/docker-compose.yml"
+    owner: centos
+    group: centos
+    mode: "0644"
+  tags: week10_devops
+
+- name: Validate Docker Compose configuration
+  ansible.builtin.command: docker compose -p {{ week10_compose_project_name }} config
+  args:
+    chdir: "{{ week10_lab_dir }}"
+  register: week10_compose_config
+  changed_when: false
+  tags: week10_devops
+
+- name: Check if old MinIO container exists
+  ansible.builtin.command: docker inspect {{ minio_container_name }}
+  register: week10_old_minio_inspect
+  changed_when: false
+  failed_when: false
+  when: week10_manage_compose_stack | bool
+  tags: week10_devops
+
+- name: Check if old inventory API container exists
+  ansible.builtin.command: docker inspect {{ inventory_container_name }}
+  register: week10_old_inventory_inspect
+  changed_when: false
+  failed_when: false
+  when: week10_manage_compose_stack | bool
+  tags: week10_devops
+
+- name: Stop old docker-run containers before Compose migration
+  ansible.builtin.command: docker stop {{ item.name }}
+  loop:
+    - { name: "{{ minio_container_name }}", rc: "{{ week10_old_minio_inspect.rc | default(1) }}" }
+    - { name: "{{ inventory_container_name }}", rc: "{{ week10_old_inventory_inspect.rc | default(1) }}" }
+  when:
+    - week10_manage_compose_stack | bool
+    - item.rc | int == 0
+  failed_when: false
+  tags: week10_devops
+
+- name: Remove old docker-run containers before Compose migration
+  ansible.builtin.command: docker rm {{ item.name }}
+  loop:
+    - { name: "{{ minio_container_name }}", rc: "{{ week10_old_minio_inspect.rc | default(1) }}" }
+    - { name: "{{ inventory_container_name }}", rc: "{{ week10_old_inventory_inspect.rc | default(1) }}" }
+  when:
+    - week10_manage_compose_stack | bool
+    - item.rc | int == 0
+  failed_when: false
+  tags: week10_devops
+
+- name: Start MinIO and inventory API with Docker Compose
+  ansible.builtin.command: docker compose -p {{ week10_compose_project_name }} up -d
+  args:
+    chdir: "{{ week10_lab_dir }}"
+  register: week10_compose_up
+  changed_when: >-
+    'Creating' in week10_compose_up.stderr or
+    'Started' in week10_compose_up.stderr or
+    'Recreated' in week10_compose_up.stderr or
+    'Created' in week10_compose_up.stderr or
+    'Running' in week10_compose_up.stderr
+  when: week10_manage_compose_stack | bool
+  tags: week10_devops
+
+- name: Wait until MinIO health endpoint is ready after Compose migration
+  ansible.builtin.uri:
+    url: http://127.0.0.1:{{ minio_api_port }}/minio/health/live
+    status_code: 200
+  register: week10_minio_health
+  retries: 20
+  delay: 3
+  until: week10_minio_health.status == 200
+  when: week10_manage_compose_stack | bool
+  tags: week10_devops
+
+- name: Install MinIO client
+  ansible.builtin.get_url:
+    url: https://dl.min.io/client/mc/release/linux-amd64/mc
+    dest: /usr/local/bin/mc
+    mode: "0755"
+  tags: week10_devops
+
+- name: Configure MinIO alias for lab automation
+  ansible.builtin.command: >-
+    /usr/local/bin/mc alias set sysadm http://127.0.0.1:{{ minio_api_port }} {{ minio_root_user }} {{ minio_root_password }}
+  changed_when: false
+  when: week10_manage_compose_stack | bool
+  tags: week10_devops
+
+- name: Ensure Restic MinIO user exists
+  ansible.builtin.command: >-
+    /usr/local/bin/mc admin user add sysadm {{ week10_restic_user }} {{ week10_restic_password }}
+  register: week10_minio_user_add
+  changed_when: "'Added user' in (week10_minio_user_add.stdout + week10_minio_user_add.stderr)"
+  failed_when: false
+  when: week10_manage_compose_stack | bool
+  tags: week10_devops
+
+- name: Ensure Restic MinIO user has readwrite policy
+  ansible.builtin.shell: |
+    set -e
+    /usr/local/bin/mc admin policy attach sysadm {{ week10_restic_policy }} --user {{ week10_restic_user }} \
+      || /usr/local/bin/mc admin policy set sysadm {{ week10_restic_policy }} user={{ week10_restic_user }}
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when: week10_manage_compose_stack | bool
+  tags: week10_devops
+
+- name: Ensure inventory-backup bucket exists
+  ansible.builtin.command: /usr/local/bin/mc mb --ignore-existing sysadm/{{ week10_restic_bucket_name }}
+  register: week10_bucket_create
+  changed_when: "'Bucket created successfully' in (week10_bucket_create.stdout + week10_bucket_create.stderr)"
+  when: week10_manage_compose_stack | bool
+  tags: week10_devops
+
+- name: Check if Restic repository is accessible
+  ansible.builtin.shell: |
+    set -e
+    source /etc/restic-inventory.env
+    restic snapshots
+  args:
+    executable: /bin/bash
+  register: week10_restic_snapshots
+  changed_when: false
+  failed_when: false
+  when: week10_manage_compose_stack | bool
+  tags: week10_devops
+
+- name: Initialize Restic repository when missing
+  ansible.builtin.shell: |
+    set -e
+    source /etc/restic-inventory.env
+    restic init
+  args:
+    executable: /bin/bash
+  when:
+    - week10_manage_compose_stack | bool
+    - week10_restic_snapshots.rc != 0
+  tags: week10_devops
+
+- name: Run Restic backup after MinIO migration
+  ansible.builtin.shell: |
+    set -e
+    source /etc/restic-inventory.env
+    restic backup {{ inventory_data_dir }}
+  args:
+    executable: /bin/bash
+  when: week10_manage_compose_stack | bool
+  tags: week10_devops

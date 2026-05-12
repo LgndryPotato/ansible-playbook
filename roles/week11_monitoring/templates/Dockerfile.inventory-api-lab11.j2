@@ -1,0 +1,17 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir \
+    flask \
+    opentelemetry-sdk \
+    opentelemetry-exporter-otlp-proto-http \
+    opentelemetry-instrumentation-flask
+
+COPY app.py /app/app.py
+
+RUN mkdir -p /data/inventory
+
+EXPOSE 5000
+
+CMD ["python", "/app/app.py"]

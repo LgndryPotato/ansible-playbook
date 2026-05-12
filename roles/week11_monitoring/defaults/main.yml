@@ -1,0 +1,37 @@
+---
+vm_name: c11483vm
+base_domain: sysadm.ee
+vm_domain: "{{ vm_name }}.{{ base_domain }}"
+grafana_domain: "grafana.{{ vm_domain }}"
+inventory_domain: "inventory.{{ vm_domain }}"
+
+inventory_image_name: inventory-api:lab11
+
+lab11_dir: /home/centos/lab11
+lab10_dir: /home/centos/lab10
+inventory_build_dir: /opt/week09-inventory-api
+inventory_lab11_image: inventory-api:lab11
+inventory_service_name: inventory.c11483vm.sysadm.ee
+
+otel_endpoint: https://jaeger.sysadm.ee
+otel_protocol: http/protobuf
+slow_handler_name: validate_inventory_cache
+
+prometheus_port: 9090
+node_exporter_port: 9100
+loki_port: 3100
+grafana_port: 3000
+
+grafana_admin_user: admin
+grafana_admin_password: admin
+
+week11_compose_project: lab11
+
+# Week 11 scoring wants this file.
+# The Jaeger documentation shows the intentionally slow span is validate_inventory_cache.
+slow_handler_name: validate_inventory_cache
+
+# TLS files from previous TLS lab.
+grafana_ssl_cert: /etc/pki/tls/certs/server.crt
+grafana_ssl_key: /etc/pki/tls/private/server.key
+grafana_ssl_chain: /etc/pki/tls/certs/ca-chain.crt

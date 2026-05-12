@@ -1,0 +1,43 @@
+---
+# Week 10 lab paths and audit image
+week10_lab_dir: /home/centos/lab10
+week10_consultancy_image: registry.hpc.ut.ee/public/lab10-consultancy:latest
+
+# Tool versions / repos
+week10_dive_rpm_url: https://github.com/wagoodman/dive/releases/download/v0.13.1/dive_0.13.1_linux_amd64.rpm
+week10_trivy_repo_baseurl: https://aquasecurity.github.io/trivy-repo/rpm/releases/$basearch/
+week10_trivy_repo_gpgkey: https://aquasecurity.github.io/trivy-repo/rpm/public.key
+
+# These two are intentionally empty because Task 2 requires manual Dive inspection.
+# Fill them after you find the correct values, or write the files manually on the VM.
+week10_malicious_layer_digest: ""
+week10_malicious_cve_id: ""
+
+# Compose migration controls.
+# Safe default: deploy and validate docker-compose.yml only. Set true to stop/remove the
+# old docker-run containers and run `docker compose up -d` from Ansible.
+week10_manage_compose_stack: true
+week10_compose_project_name: lab10
+
+# Week 9 values reused by docker-compose.yml.
+# Adjust these if your Week 9 defaults used different names/ports.
+minio_container_name: minio
+minio_image: quay.io/minio/minio:latest
+minio_volume_name: minio_data
+minio_external_volume_name: minio-data
+minio_api_port: 9000
+minio_console_port: 9001
+minio_root_user: minioadmin
+minio_root_password: minioadmin123
+
+inventory_container_name: inventory-api
+inventory_image_name: inventory-api:latest
+inventory_source_image_name: week09-inventory-api:latest
+inventory_data_dir: /data/inventory
+inventory_host_port: 5000
+
+# Week 9 Restic / MinIO compatibility
+week10_restic_bucket_name: inventory-backup
+week10_restic_user: inventoryuser
+week10_restic_password: inventorypassword123
+week10_restic_policy: readwrite

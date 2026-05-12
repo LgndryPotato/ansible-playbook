@@ -1,0 +1,17 @@
+<VirtualHost *:80>
+    ServerName {{ grafana_domain }}
+    Redirect permanent / https://{{ grafana_domain }}/
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName {{ grafana_domain }}
+
+    SSLEngine on
+    SSLCertificateFile {{ grafana_ssl_cert }}
+    SSLCertificateKeyFile {{ grafana_ssl_key }}
+    SSLCACertificateFile {{ grafana_ssl_chain }}
+
+    ProxyPreserveHost On
+    ProxyPass / http://127.0.0.1:{{ grafana_port }}/
+    ProxyPassReverse / http://127.0.0.1:{{ grafana_port }}/
+</VirtualHost>

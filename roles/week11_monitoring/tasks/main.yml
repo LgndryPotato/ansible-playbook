@@ -1,0 +1,150 @@
+---
+- name: Create lab11 directory
+  ansible.builtin.file:
+    path: "{{ lab11_dir }}"
+    state: directory
+    owner: centos
+    group: centos
+    mode: "0755"
+  tags: week11_monitoring
+
+- name: Deploy Prometheus config
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: "{{ lab11_dir }}/prometheus.yml"
+    owner: centos
+    group: centos
+    mode: "0644"
+  tags: week11_monitoring
+
+- name: Deploy Loki config
+  ansible.builtin.template:
+    src: loki-config.yaml.j2
+    dest: "{{ lab11_dir }}/loki-config.yaml"
+    owner: centos
+    group: centos
+    mode: "0644"
+  tags: week11_monitoring
+
+- name: Deploy Promtail config
+  ansible.builtin.template:
+    src: promtail-config.yaml.j2
+    dest: "{{ lab11_dir }}/promtail-config.yaml"
+    owner: centos
+    group: centos
+    mode: "0644"
+  tags: week11_monitoring
+
+- name: Deploy monitoring Docker Compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ lab11_dir }}/docker-compose.yml"
+    owner: centos
+    group: centos
+    mode: "0644"
+  tags: week11_monitoring
+
+- name: Start monitoring stack
+  ansible.builtin.command: docker compose -p "{{ week11_compose_project }}" up -d
+  args:
+    chdir: "{{ lab11_dir }}"
+  tags: week11_monitoring
+
+- name: Open monitoring firewall ports
+  ansible.posix.firewalld:
+    port: "{{ item }}/tcp"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop:
+    - "{{ node_exporter_port }}"
+    - "{{ prometheus_port }}"
+    - "{{ loki_port }}"
+  tags: week11_monitoring
+
+- name: Deploy Grafana Apache reverse proxy
+  ansible.builtin.template:
+    src: grafana.conf.j2
+    dest: /etc/httpd/conf.d/grafana.conf
+    owner: root
+    group: root
+    mode: "0644"
+  tags: week11_monitoring
+
+- name: Test Apache configuration
+  ansible.builtin.command: apachectl configtest
+  changed_when: false
+  tags: week11_monitoring
+
+- name: Reload Apache
+  ansible.builtin.systemd:
+    name: httpd
+    state: reloaded
+  tags: week11_monitoring
+
+- name: Create slow handler answer file
+  ansible.builtin.copy:
+    dest: "{{ lab11_dir }}/slow_handler.txt"
+    content: "{{ slow_handler_name }}\n"
+    owner: centos
+    group: centos
+    mode: "0644"
+  tags: week11_monitoring
+
+- name: Deploy Lab 11 instrumented inventory API app
+  ansible.builtin.template:
+    src: app.py.inventory-api-lab11.j2
+    dest: "{{ inventory_build_dir }}/app.py"
+    owner: root
+    group: root
+    mode: "0644"
+  tags: week11_monitoring
+
+- name: Deploy Lab 11 inventory API Dockerfile
+  ansible.builtin.template:
+    src: Dockerfile.inventory-api-lab11.j2
+    dest: "{{ inventory_build_dir }}/Dockerfile"
+    owner: root
+    group: root
+    mode: "0644"
+  tags: week11_monitoring
+
+- name: Build Lab 11 instrumented inventory API image
+  ansible.builtin.command: docker build -t "{{ inventory_lab11_image }}" .
+  args:
+    chdir: "{{ inventory_build_dir }}"
+  tags: week11_monitoring
+
+- name: Set inventory API image to Lab 11 image in Week 10 Compose
+  ansible.builtin.replace:
+    path: "{{ lab10_dir }}/docker-compose.yml"
+    regexp: 'image:\s*inventory-api:(latest|lab11)'
+    replace: 'image: {{ inventory_lab11_image }}'
+  tags: week11_monitoring
+
+- name: Ensure inventory API has OTEL environment in Week 10 Compose
+  ansible.builtin.replace:
+    path: "{{ lab10_dir }}/docker-compose.yml"
+    regexp: |
+      (?ms)(  inventory:\n(?:    .+\n)*?    restart: unless-stopped\n)(?:    environment:\n(?:      - OTEL_.+\n)*)?
+    replace: |
+      \1    environment:
+            - OTEL_EXPORTER_OTLP_ENDPOINT={{ otel_endpoint }}
+            - OTEL_EXPORTER_OTLP_PROTOCOL={{ otel_protocol }}
+            - OTEL_SERVICE_NAME={{ inventory_service_name }}
+  tags: week11_monitoring
+
+- name: Force recreate Week 10 inventory service with Lab 11 image
+  ansible.builtin.command: docker compose -p lab10 up -d --force-recreate inventory
+  args:
+    chdir: "{{ lab10_dir }}"
+  tags: week11_monitoring
+
+- name: Create slow handler answer file
+  ansible.builtin.copy:
+    dest: /home/centos/lab11/slow_handler.txt
+    content: "{{ slow_handler_name }}\n"
+    owner: centos
+    group: centos
+    mode: "0644"
+  tags: week11_monitoring
