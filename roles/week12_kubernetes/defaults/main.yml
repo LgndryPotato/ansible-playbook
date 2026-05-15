@@ -1,0 +1,19 @@
+---
+vm_name: c11483vm
+vm_domain: "{{ vm_name }}.sysadm.ee"
+inventory_domain: "inventory.{{ vm_domain }}"
+lab12_dir: /home/centos/lab12
+
+k3s_api_port: 6443
+k3s_pod_cidr: 10.42.0.0/16
+k3s_service_cidr: 10.43.0.0/16
+
+vm_ip: "192.168.42.74"
+
+traefik_http_port: 8080
+traefik_https_port: 8443
+
+inventory_bearer_token: "845e6732f32b81dd778972703474ccbb"
+
+inventory_apache_conf: /etc/httpd/conf.d/01-inventory.conf
+frontpage_apache_conf: /etc/httpd/conf.d/00-frontpage.conf

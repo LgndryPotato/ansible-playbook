@@ -36,3 +36,5 @@
       tags: week10_devops
     - role: week11_monitoring
       tags: week11_monitoring
+    - role: week12_kubernetes
+      tags: week12_kubernetes

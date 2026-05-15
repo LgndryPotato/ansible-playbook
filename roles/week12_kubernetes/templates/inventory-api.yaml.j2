@@ -1,0 +1,96 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab12
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: inventory-api-pv
+spec:
+  capacity:
+    storage: 100Mi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  nfs:
+    path: /data/nfs/inventory
+    server: localhost
+    readOnly: false
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: inventory-api-pvc
+  namespace: lab12
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  volumeName: inventory-api-pv
+  resources:
+    requests:
+      storage: 100Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-api
+  namespace: lab12
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: inventory-api
+  template:
+    metadata:
+      labels:
+        app: inventory-api
+    spec:
+      containers:
+        - name: inventory-api
+          image: registry.hpc.ut.ee/public/sysadm-inventory-api:latest
+          imagePullPolicy: Always
+          command: ["python", "app.py", "--storage", "/data/inventory/storage.db"]
+          ports:
+            - containerPort: 5000
+          volumeMounts:
+            - name: inventory-storage
+              mountPath: /data/inventory
+      volumes:
+        - name: inventory-storage
+          persistentVolumeClaim:
+            claimName: inventory-api-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-api
+  namespace: lab12
+spec:
+  selector:
+    app: inventory-api
+  ports:
+    - port: 5000
+      targetPort: 5000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: inventory-api
+  namespace: lab12
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: "{{ inventory_domain }}"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: inventory-api
+                port:
+                  number: 5000
