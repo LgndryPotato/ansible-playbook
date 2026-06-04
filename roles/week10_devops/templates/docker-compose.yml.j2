@@ -24,7 +24,7 @@ services:
     ports:
       - "127.0.0.1:{{ inventory_host_port }}:5000"
     volumes:
-      - {{ inventory_data_dir }}:/data/inventory
+      - /data/inventory:/data/inventory
 
 volumes:
   {{ minio_volume_name }}:
