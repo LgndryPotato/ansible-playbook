@@ -12,7 +12,8 @@ services:
       MINIO_ROOT_PASSWORD: "{{ minio_root_password }}"
     volumes:
       - {{ minio_volume_name }}:/data
-    inventory:
+
+  inventory:
     container_name: {{ inventory_container_name }}
     image: {{ inventory_image_name | default('inventory-api:lab11') }}
     restart: unless-stopped
