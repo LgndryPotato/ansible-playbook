@@ -8,6 +8,7 @@
   ansible.builtin.systemd:
     name: postfix
     state: restarted
+  failed_when: false
 
 - name: restart dovecot
   ansible.builtin.systemd:

@@ -1,6 +1,9 @@
 ---
-vm_name: c11483vm
+vm_name: laur-exam
 domain: "{{ vm_name }}.sysadm.ee"
+
+blog_domain: "blog.{{ domain }}"
+mail_domain: "mail.{{ domain }}"
 
 cert_file: /etc/pki/tls/certs/server.crt
 key_file: /etc/pki/tls/private/server.key

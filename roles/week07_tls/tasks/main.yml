@@ -139,6 +139,5 @@
     state: started
   loop:
     - httpd
-    - postfix
     - dovecot
   tags: week07_tls

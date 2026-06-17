@@ -1,2 +1,2 @@
 [vm1]
-vm1 ansible_host=172.17.90.60 ansible_user=centos ansible_python_interpreter=/usr/bin/python3
+vm1 ansible_host=172.17.90.128 ansible_user=centos ansible_python_interpreter=/usr/bin/python3

@@ -1,6 +1,6 @@
 ---
-data_disk: /dev/vdb
-data_partition: /dev/vdb1
+data_disk: /dev/sdb
+data_partition: /dev/sdb1
 data_mount: /data
 
 inventory_storage_dir: /data/inventory
